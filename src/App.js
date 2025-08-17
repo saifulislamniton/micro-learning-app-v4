@@ -21,15 +21,21 @@ const ErrorMessage = ({ message }) => (
   </div>
 );
 
-// Displays a single recommendation card
-const RecommendationCard = ({ topic, description, index }) => (
-    <div 
-        className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 shadow-lg transform hover:scale-105 transition-transform duration-300 ease-in-out"
+// UPDATED: Displays a single recommendation card as a clickable link
+const RecommendationCard = ({ topic, description, url, index }) => (
+    <a 
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block bg-slate-800/50 border border-slate-700 rounded-xl p-6 shadow-lg transform hover:scale-105 transition-transform duration-300 ease-in-out group"
         style={{ animationDelay: `${index * 100}ms` }}
     >
-        <h3 className="text-lg font-bold text-sky-400 mb-2">{topic}</h3>
+        <h3 className="text-lg font-bold text-sky-400 mb-2 group-hover:underline">{topic}</h3>
         <p className="text-slate-300 text-sm">{description}</p>
-    </div>
+        <div className="text-xs text-sky-600 mt-4 opacity-70 group-hover:opacity-100 transition-opacity">
+            Click to learn more →
+        </div>
+    </a>
 );
 
 
@@ -38,8 +44,8 @@ const RecommendationCard = ({ topic, description, index }) => (
 const App = () => {
   // --- State Management ---
   const [userInput, setUserInput] = useState({
-    subject: 'Quantum Computing',
-    userInfo: 'A software developer interested in new technologies.',
+    subject: 'The Roman Empire',
+    userInfo: 'A high school student studying for a history test.',
     experienceLevel: 'Beginner',
     learningFormat: 'Text',
   });
@@ -208,7 +214,13 @@ const App = () => {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
                 {recommendations.map((rec, index) => (
-                  <RecommendationCard key={index} index={index} topic={rec.topic} description={rec.description} />
+                  <RecommendationCard 
+                    key={index} 
+                    index={index} 
+                    topic={rec.topic} 
+                    description={rec.description} 
+                    url={rec.url} 
+                  />
                 ))}
               </div>
             </div>
@@ -226,24 +238,24 @@ const App = () => {
             <p>Powered by Gemini</p>
         </footer>
       </div>
-      {/* This style tag is now correctly formatted for JSX */}
       <style>
-  {`
-    @keyframes fade-in {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-fade-in {
-        animation: fade-in 0.5s ease-out forwards;
-    }
-    .animate-fade-in > div {
-        opacity: 0;
-        animation: fade-in 0.5s ease-out forwards;
-    }
-  `}
-</style>
+        {`
+          @keyframes fade-in {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
+          }
+          .animate-fade-in {
+              animation: fade-in 0.5s ease-out forwards;
+          }
+          .animate-fade-in > div {
+              opacity: 0;
+              animation: fade-in 0.5s ease-out forwards;
+          }
+        `}
+      </style>
     </div>
   );
 };
 
 export default App;
+

@@ -12,19 +12,21 @@ export default async function handler(req, res) {
       throw new Error("API key is not configured.");
     }
 
+    // UPDATED PROMPT: Asks for a URL and only 2 topics.
     const prompt = `
-      As an expert learning consultant, generate exactly 5 micro-learning topics for the following user and request:
+      As an expert learning consultant, generate exactly 2 micro-learning topics for the following user and request:
       - Subject: "${userInput.subject}"
       - User Profile: "${userInput.userInfo}"
       - Experience Level: "${userInput.experienceLevel}"
       - Preferred Format: "${userInput.learningFormat}"
 
       A micro-learning topic must be a small, specific concept that can be learned in 10-15 minutes. 
-      For each topic, provide a compelling, one-sentence description that is tailored to the user's profile and preferred learning format. 
-      For example, if the format is 'Audio', suggest a podcast idea. If 'Video', a short explainer video concept. If 'Text', a blog post or article idea.
+      For each topic:
+      1.  Provide a compelling, one-sentence description tailored to the user.
+      2.  Provide a real, publicly accessible, and relevant URL (like a Wikipedia article, a YouTube video, a blog post, or a specific documentation page) where the user can learn about this topic.
     `;
 
-    // CORRECTED SCHEMA
+    // UPDATED SCHEMA: Includes a 'url' field.
     const payload = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
@@ -38,9 +40,10 @@ export default async function handler(req, res) {
                 "type": "OBJECT",
                 "properties": {
                   "topic": { "type": "STRING" },
-                  "description": { "type": "STRING" }
+                  "description": { "type": "STRING" },
+                  "url": { "type": "STRING" }
                 },
-                "required": ["topic", "description"]
+                "required": ["topic", "description", "url"]
               }
             }
           },
