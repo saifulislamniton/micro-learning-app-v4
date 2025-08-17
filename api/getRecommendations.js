@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   try {
     const userInput = req.body;
-    const apiKey = process.env.AIzaSyAmN09NedCct-HCk5l6c6y8362-yK_ktpc; // Reads the secure key
+    const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       throw new Error("API key is not configured.");
@@ -24,14 +24,31 @@ export default async function handler(req, res) {
       For example, if the format is 'Audio', suggest a podcast idea. If 'Video', a short explainer video concept. If 'Text', a blog post or article idea.
     `;
 
+    // CORRECTED SCHEMA
     const payload = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: "application/json",
-        responseSchema: { /* ... (keep the same schema as in the React code) ... */ }
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            "recommendations": {
+              "type": "ARRAY",
+              "items": {
+                "type": "OBJECT",
+                "properties": {
+                  "topic": { "type": "STRING" },
+                  "description": { "type": "STRING" }
+                },
+                "required": ["topic", "description"]
+              }
+            }
+          },
+          "required": ["recommendations"]
+        }
       }
     };
-
+    
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
     const apiResponse = await fetch(apiUrl, {
