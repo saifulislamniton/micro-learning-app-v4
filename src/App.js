@@ -5,7 +5,7 @@ import React, { useState, useCallback } from 'react';
 // Displays a loading spinner
 const LoadingSpinner = () => (
   <div className="flex flex-col items-center justify-center p-8">
-    <svg className="animate-spin -ml-1 mr-3 h-10 w-10 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="http://www.w3.org/2000/svg">
+    <svg className="animate-spin -ml-1 mr-3 h-10 w-10 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
@@ -72,7 +72,6 @@ const App = () => {
 
       const result = await response.json();
       
-      // ADDED THIS LINE FOR DEBUGGING
       console.log("Raw API Response:", JSON.stringify(result, null, 2));
 
       if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts.length > 0) {
@@ -185,4 +184,66 @@ const App = () => {
                 </label>
               ))}
             </div>
-          </d
+          </div>
+          
+          <div className="pt-4">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-sky-600 hover:bg-sky-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-md transition-colors duration-300 shadow-lg flex items-center justify-center"
+            >
+              {isLoading ? 'Generating...' : 'Get Personalized Topics'}
+            </button>
+          </div>
+        </form>
+
+        <main>
+          {isLoading && <LoadingSpinner />}
+          {error && <ErrorMessage message={error} />}
+          
+          {recommendations.length > 0 && (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-center text-slate-300">
+                Micro-Learnings for <span className="text-sky-400">{displaySubject}</span>
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+                {recommendations.map((rec, index) => (
+                  <RecommendationCard key={index} index={index} topic={rec.topic} description={rec.description} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !error && recommendations.length === 0 && (
+             <div className="text-center p-8 bg-slate-800/30 rounded-lg border-2 border-dashed border-slate-700">
+                <h2 className="text-xl font-semibold text-slate-400">Ready for Personalized Learning?</h2>
+                <p className="text-slate-500 mt-2">Fill out the form above to discover learning opportunities tailored just for you.</p>
+             </div>
+          )}
+        </main>
+        
+        <footer className="text-center mt-12 text-slate-600 text-sm">
+            <p>Powered by Gemini</p>
+        </footer>
+      </div>
+      {/* This style tag is now correctly formatted for JSX */}
+      <style>
+        {`
+          @keyframes fade-in {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
+          }
+          .animate-fade-in {
+              animation: fade-in 0.5s ease-out forwards;
+          }
+          .animate-fade-in > div {
+              opacity: 0;
+              animation: fade-in 0.5s ease-out forwards;
+          }
+        `}
+      </style>
+    </div>
+  );
+};
+
+export default App;
