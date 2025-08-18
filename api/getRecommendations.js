@@ -1,44 +1,18 @@
 // api/getRecommendations.js
 
 /**
- * An advanced helper function to verify a URL.
- * It uses a fast HEAD request for general sites.
- * For YouTube links, it performs a GET request and checks the page content for signs of an unavailable video.
+ * A reliable helper function to verify a URL's existence.
+ * It uses a fast HEAD request, which is less likely to be blocked by bot detection.
  * @param {string} url The URL to verify.
- * @returns {Promise<boolean>} True if the URL is valid and content is available, false otherwise.
+ * @returns {Promise<boolean>} True if the URL exists and returns a 2xx status code, false otherwise.
  */
 async function verifyUrl(url) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
 
-    // Special handling for YouTube URLs
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      const response = await fetch(url, {
-        method: 'GET', // We need the body for YouTube
-        signal: controller.signal,
-        redirect: 'follow'
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        return false; // The page itself doesn't exist (e.g., 404)
-      }
-
-      const pageText = await response.text();
-      // Check for common "video unavailable" messages in the page's content or title
-      const isUnavailable = 
-        pageText.includes("Video unavailable") || 
-        pageText.includes("This video is private") ||
-        pageText.includes("This video is unlisted") ||
-        pageText.includes("This video has been removed");
-
-      return !isUnavailable; // Return true only if the "unavailable" text is NOT found
-    }
-
-    // Standard, fast HEAD request for all other URLs
     const response = await fetch(url, {
-      method: 'HEAD',
+      method: 'HEAD', // Reverting to HEAD - it's more reliable against bot detection.
       signal: controller.signal,
       redirect: 'follow'
     });
