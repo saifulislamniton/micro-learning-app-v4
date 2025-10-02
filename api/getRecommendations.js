@@ -42,24 +42,44 @@ export default async function handler(req, res) {
       Your entire response must be a single JSON object with one key "recommendations", which is an array of objects.
       Each object in the array must have three keys: "topic", "description", and "url".
     `;
+    
+const payload = {
+    model: "sonar", // or "sonar-pro" if you want stronger search
+    messages: [
+      { role: "system", content: "Return ONLY valid JSON matching the provided schema." },
+      { role: "user", content: userPrompt }
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "recommendations_schema",
+        schema: {
+          type: "object",
+          properties: {
+            recommendations: {
+              type: "array",
+              minItems: 2,
+              items: {
+                type: "object",
+                required: ["topic", "description", "url"],
+                properties: {
+                  topic: { type: "string" },
+                  description: { type: "string" },
+                  url: { type: "string", format: "uri" }
+                }
+              }
+            }
+          },
+          required: ["recommendations"],
+          additionalProperties: false
+        },
+        strict: true
+      }
+    }
+  };
 
-    const payload = {
-      model: "sonar-small-online",
-      messages: [
-        { role: "user", content: userPrompt }
-      ],
-      response_format: { type: "json_object" }
-    };
 
-    const apiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(payload)
-    });
-
+    
     const responseBodyText = await apiResponse.text();
 
     if (!apiResponse.ok) {
