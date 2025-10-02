@@ -1,31 +1,22 @@
 // api/getRecommendations.js
 
-/**
- * A reliable helper function to verify a URL's existence.
- * It uses a fast HEAD request, which is less likely to be blocked by bot detection.
- * @param {string} url The URL to verify.
- * @returns {Promise<boolean>} True if the URL exists and returns a 2xx status code, false otherwise.
- */
+// This function remains the same. It's still a valuable check.
 async function verifyUrl(url) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
-
     const response = await fetch(url, {
-      method: 'HEAD', // Reverting to HEAD - it's more reliable against bot detection.
+      method: 'HEAD',
       signal: controller.signal,
       redirect: 'follow'
     });
-
     clearTimeout(timeoutId);
     return response.ok;
-
   } catch (error) {
     console.warn(`URL verification failed for ${url}:`, error.name);
     return false;
   }
 }
-
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -34,69 +25,60 @@ export default async function handler(req, res) {
 
   try {
     const userInput = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
+    // --- CHANGE 1: Using the new environment variable ---
+    const apiKey = process.env.PERPLEXITY_API_KEY;
 
     if (!apiKey) {
-      throw new Error("API key is not configured on the server.");
+      throw new Error("PERPLEXITY_API_KEY is not configured on the server.");
     }
 
-    const prompt = `
-      As an expert learning consultant, generate 6 micro-learning topics for the following user and request:
+    // --- CHANGE 2: The API endpoint is different ---
+    const apiUrl = 'https://api.perplexity.ai/chat/completions';
+
+    // --- CHANGE 3: The prompt and payload structure are completely different for Perplexity ---
+    // We create a system prompt to force the AI to return JSON.
+    const systemPrompt = `You are an expert learning consultant. Your role is to generate a list of micro-learning topics. 
+    Your response MUST be a single, valid JSON object and nothing else. Do not include any text before or after the JSON.
+    The JSON object must have a single key called "recommendations", which is an array of objects.
+    Each object in the array must have three keys: "topic", "description", and "url".`;
+
+    const userPrompt = `Generate 6 micro-learning topics based on this request:
       - Subject: "${userInput.subject}"
       - User Profile: "${userInput.userInfo}"
       - Experience Level: "${userInput.experienceLevel}"
       - Preferred Format: "${userInput.learningFormat}"
-
-      A micro-learning topic must be a small, specific concept that can be learned in approximately 11 minutes. 
-      For each topic:
-      1.  Provide a compelling, one-sentence description tailored to the user.
-      2.  Provide a real, publicly accessible, and relevant URL (like a Wikipedia article, a YouTube video, a blog post, or a specific documentation page) where the user can learn about this topic.
-    `;
+      
+      Each topic should be learnable in about 11 minutes. The URL must be a real, working link.`;
 
     const payload = {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            "recommendations": {
-              "type": "ARRAY",
-              "items": {
-                "type": "OBJECT",
-                "properties": {
-                  "topic": { "type": "STRING" },
-                  "description": { "type": "STRING" },
-                  "url": { "type": "STRING" }
-                },
-                "required": ["topic", "description", "url"]
-              }
-            }
-          },
-          "required": ["recommendations"]
-        }
-      }
+      model: "sonar-small-online", // Perplexity's fast, web-connected model
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ]
     };
-    
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
     const apiResponse = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // --- CHANGE 4: Authentication is done via a Bearer token ---
+        'Authorization': `Bearer ${apiKey}`
+      },
       body: JSON.stringify(payload)
     });
 
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text();
-      console.error("Gemini API Error:", errorText);
-      throw new Error(`Gemini API request failed with status ${apiResponse.status}`);
+      console.error("Perplexity API Error:", errorText);
+      throw new Error(`Perplexity API request failed with status ${apiResponse.status}`);
     }
 
     const result = await apiResponse.json();
-
-    // --- Verification Logic ---
-    if (result.candidates && result.candidates.length > 0) {
-      const jsonText = result.candidates[0].content.parts[0].text;
+    
+    // --- CHANGE 5: The response structure is different. We get the content from choices. ---
+    if (result.choices && result.choices.length > 0) {
+      const jsonText = result.choices[0].message.content;
       const parsedData = JSON.parse(jsonText);
       const candidateRecommendations = parsedData.recommendations || [];
       
@@ -105,24 +87,21 @@ export default async function handler(req, res) {
 
       for (const rec of candidateRecommendations) {
         if (rec.url) {
-          console.log(`Verifying URL: ${rec.url}`);
           const isUrlValid = await verifyUrl(rec.url);
           if (isUrlValid) {
-            console.log(`---> URL is VALID: ${rec.url}`);
             verifiedRecommendations.push(rec);
             if (verifiedRecommendations.length >= desiredCount) {
               break;
             }
-          } else {
-            console.log(`---> URL is INVALID: ${rec.url}`);
           }
         }
       }
       
       if (verifiedRecommendations.length === 0) {
-          throw new Error("The AI generated links, but none could be verified as active websites. Please try again.");
+        throw new Error("The AI generated links, but none could be verified as active websites. Please try again.");
       }
-
+      
+      // We need to re-format the response to mimic the Gemini structure the frontend expects.
       const finalResponse = {
         candidates: [{
           content: {
@@ -136,8 +115,7 @@ export default async function handler(req, res) {
       res.status(200).json(finalResponse);
 
     } else {
-      const responseText = result.promptFeedback?.blockReason?.toString() || "The AI model did not return any recommendations.";
-      throw new Error(responseText);
+      throw new Error("The Perplexity API did not return any recommendations.");
     }
 
   } catch (error) {
