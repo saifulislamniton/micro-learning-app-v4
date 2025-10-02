@@ -33,27 +33,22 @@ export default async function handler(req, res) {
 
     const apiUrl = 'https://api.perplexity.ai/chat/completions';
 
-    // UPDATED PROMPT: We no longer need to instruct the AI about JSON formatting.
-    // The system prompt is now simpler and just defines the AI's role.
-    const systemPrompt = `You are an expert learning consultant. Your role is to generate a list of micro-learning topics.`;
+    // A simplified, single user prompt. This is the most basic and reliable method.
+    const userPrompt = `
+      Generate 6 micro-learning topics about "${userInput.subject}" for a "${userInput.experienceLevel}" user who is a "${userInput.userInfo}".
+      The user prefers a "${userInput.learningFormat}" format.
+      Each topic should be learnable in about 11 minutes.
+      You MUST provide a real, working URL for each topic.
+      Your entire response must be a single JSON object with one key "recommendations", which is an array of objects.
+      Each object in the array must have three keys: "topic", "description", and "url".
+    `;
 
-    const userPrompt = `Generate 6 micro-learning topics based on this request:
-      - Subject: "${userInput.subject}"
-      - User Profile: "${userInput.userInfo}"
-      - Experience Level: "${userInput.experienceLevel}"
-      - Preferred Format: "${userInput.learningFormat}"
-      
-      Each topic should be learnable in about 11 minutes. For each topic, provide a topic title, a short description, and a real, working URL.
-      Your output must be a JSON object with a single key "recommendations", which is an array of objects, where each object has "topic", "description", and "url" keys.`;
-
-    // UPDATED PAYLOAD: Added the official "response_format" for JSON mode.
     const payload = {
       model: "sonar-small-online",
       messages: [
-        { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      response_format: { type: "json_object" } // This is the crucial fix!
+      response_format: { type: "json_object" }
     };
 
     const apiResponse = await fetch(apiUrl, {
@@ -65,13 +60,14 @@ export default async function handler(req, res) {
       body: JSON.stringify(payload)
     });
 
+    const responseBodyText = await apiResponse.text();
+
     if (!apiResponse.ok) {
-      const errorText = await apiResponse.text();
-      console.error("Perplexity API Error:", errorText);
-      throw new Error(`Perplexity API request failed with status ${apiResponse.status}`);
+      console.error("Perplexity API Error Body:", responseBodyText);
+      throw new Error(`Perplexity API request failed with status ${apiResponse.status}. Check Vercel logs for details.`);
     }
 
-    const result = await apiResponse.json();
+    const result = JSON.parse(responseBodyText);
     
     if (result.choices && result.choices.length > 0) {
       const jsonText = result.choices[0].message.content;
@@ -94,7 +90,7 @@ export default async function handler(req, res) {
       }
       
       if (verifiedRecommendations.length === 0) {
-        throw new Error("The AI generated links, but none could be verified as active websites. Please try again.");
+        throw new Error("The AI generated links, but none could be verified as active. Please try again.");
       }
       
       const finalResponse = {
