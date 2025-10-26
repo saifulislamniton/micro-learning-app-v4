@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+/* @jsxRuntime automatic */
+import { useState, useCallback } from 'react';
 
 // -------- Helper Components --------
 const LoadingSpinner = () => (
@@ -12,7 +13,7 @@ const LoadingSpinner = () => (
 );
 
 const ErrorMessage = ({ message }) => (
-  <div className="bg-red-900/50 border border-red-600 text-red-300 px-4 py-3 rounded-lg relative" role="alert">
+  <div className="bg-red-900/50 border border-red-600 text-red-300 px-4 py-3 rounded-lg" role="alert">
     <strong className="font-bold">Oops! </strong>
     <span className="block sm:inline">{message}</span>
   </div>
@@ -44,7 +45,7 @@ function App() {
     learningFormat: 'Text'
   });
 
-  // Model selector (Perplexity best for links)
+  // Model selector
   const [provider, setProvider] = useState('perplexity');
 
   // Results state
@@ -53,7 +54,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch recommendations via our server route
   const fetchRecommendations = useCallback(async () => {
     if (!userInput.subject) return;
 
@@ -76,19 +76,16 @@ function App() {
         throw new Error(msg);
       }
 
-      // Unified shape: { recommendations: [{ topic, description, url }] }
       const recs = Array.isArray(payload?.recommendations) ? payload.recommendations : [];
       setRecommendations(recs);
       setDisplaySubject(userInput.subject);
     } catch (err) {
-      console.error('Error fetching recommendations:', err);
       setError(err?.message || 'An unknown error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
   }, [userInput, provider]);
 
-  // Handlers
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setUserInput((prev) => ({ ...prev, [name]: value }));
@@ -104,9 +101,7 @@ function App() {
       <div className="max-w-4xl mx-auto">
 
         <header className="text-center mb-8">
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-sky-400">
-            Micro-Learning Navigator
-          </h1>
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-sky-400">Micro-Learning Navigator</h1>
           <p className="text-slate-400 mt-2">Your daily dose of knowledge, one small step at a time.</p>
         </header>
 
@@ -249,13 +244,8 @@ function App() {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
           }
-          .animate-fade-in {
-            animation: fade-in 0.5s ease-out forwards;
-          }
-          .animate-fade-in > div {
-            opacity: 0;
-            animation: fade-in 0.5s ease-out forwards;
-          }
+          .animate-fade-in { animation: fade-in 0.5s ease-out forwards; }
+          .animate-fade-in > div { opacity: 0; animation: fade-in 0.5s ease-out forwards; }
         `}
       </style>
     </div>
