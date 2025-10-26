@@ -1,76 +1,6 @@
 import React, { useState, useCallback } from 'react';
 
-// --- Helper Components ---
-
-import React, { useState } from 'react';
-import { useLLM } from './hooks/useLLM';
-
-export default function App() {
-  const [query, setQuery] = useState('');
-  const [task, setTask] = useState('links');      // 'links' | 'summary'
-  const [provider, setProvider] = useState('perplexity'); // 'perplexity' | 'openai' | 'gemini'
-  const { loading, data, error, callLLM } = useLLM();
-
-  const onSubmit = (e) => {
-    e.preventDefault();
-    callLLM({ provider, task, query, maxResults: 6 });
-  };
-
-  const items = data?.items || [];
-  const text  = data?.text || '';
-
-  return (
-    <div style={{ padding: 16 }}>
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g., SQL joins under 5 minutes"
-        />
-
-        <div>
-          <label><input type="radio" name="task" value="links"
-            checked={task==='links'} onChange={() => setTask('links')} /> Links</label>{' '}
-          <label><input type="radio" name="task" value="summary"
-            checked={task==='summary'} onChange={() => setTask('summary')} /> Summary</label>
-        </div>
-
-        <div>
-          <label>Model:&nbsp;
-            <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-              <option value="perplexity">Perplexity (best for live links)</option>
-              <option value="openai">OpenAI</option>
-              <option value="gemini">Gemini</option>
-            </select>
-          </label>
-        </div>
-
-        <button type="submit" disabled={loading}>Run</button>
-      </form>
-
-      {error && <div style={{ color:'crimson', marginTop: 12 }}>Error: {error}</div>}
-
-      {task === 'links' && items.length > 0 && (
-        <ul style={{ marginTop: 12 }}>
-          {items.map((it) => (
-            <li key={it.url}>
-              <strong>{(it.platform || 'web').toUpperCase()}</strong>{' '}
-              <a href={it.url} target="_blank" rel="noreferrer">{it.title || it.url}</a>
-              {it.est_duration_s ? ` • ~${Math.round(it.est_duration_s/60)} min` : null}
-              {it.reason ? <div style={{ fontSize: 12, opacity: 0.8 }}>{it.reason}</div> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {task === 'summary' && !!text && (
-        <div style={{ whiteSpace: 'pre-wrap', marginTop: 12 }}>{text}</div>
-      )}
-    </div>
-  );
-}
-
-// Displays a loading spinner
+// -------- Helper Components --------
 const LoadingSpinner = () => (
   <div className="flex flex-col items-center justify-center p-8">
     <svg className="animate-spin -ml-1 mr-3 h-10 w-10 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -81,7 +11,6 @@ const LoadingSpinner = () => (
   </div>
 );
 
-// Displays an error message
 const ErrorMessage = ({ message }) => (
   <div className="bg-red-900/50 border border-red-600 text-red-300 px-4 py-3 rounded-lg relative" role="alert">
     <strong className="font-bold">Oops! </strong>
@@ -89,40 +18,42 @@ const ErrorMessage = ({ message }) => (
   </div>
 );
 
-// UPDATED: Displays a single recommendation card as a clickable link
 const RecommendationCard = ({ topic, description, url, index }) => (
-    <a 
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block bg-slate-800/50 border border-slate-700 rounded-xl p-6 shadow-lg transform hover:scale-105 transition-transform duration-300 ease-in-out group"
-        style={{ animationDelay: `${index * 100}ms` }}
-    >
-        <h3 className="text-lg font-bold text-sky-400 mb-2 group-hover:underline">{topic}</h3>
-        <p className="text-slate-300 text-sm">{description}</p>
-        <div className="text-xs text-sky-600 mt-4 opacity-70 group-hover:opacity-100 transition-opacity">
-            Click to learn more →
-        </div>
-    </a>
+  <a
+    href={url}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="block bg-slate-800/50 border border-slate-700 rounded-xl p-6 shadow-lg transform hover:scale-105 transition-transform duration-300 ease-in-out group"
+    style={{ animationDelay: `${index * 100}ms` }}
+  >
+    <h3 className="text-lg font-bold text-sky-400 mb-2 group-hover:underline">{topic}</h3>
+    <p className="text-slate-300 text-sm">{description}</p>
+    <div className="text-xs text-sky-600 mt-4 opacity-70 group-hover:opacity-100 transition-opacity">
+      Click to learn more →
+    </div>
+  </a>
 );
 
-
-// --- Main App Component ---
-
-const App = () => {
-  // --- State Management ---
+// -------- Main App --------
+function App() {
+  // Form state
   const [userInput, setUserInput] = useState({
     subject: 'The Roman Empire',
     userInfo: 'A high school student studying for a history test.',
     experienceLevel: 'Beginner',
-    learningFormat: 'Text',
+    learningFormat: 'Text'
   });
+
+  // Model selector (Perplexity best for links)
+  const [provider, setProvider] = useState('perplexity');
+
+  // Results state
   const [recommendations, setRecommendations] = useState([]);
+  const [displaySubject, setDisplaySubject] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [displaySubject, setDisplaySubject] = useState('');
 
-  // --- API Call to Gemini ---
+  // Fetch recommendations via our server route
   const fetchRecommendations = useCallback(async () => {
     if (!userInput.subject) return;
 
@@ -130,46 +61,37 @@ const App = () => {
     setError(null);
     setRecommendations([]);
 
-    const apiUrl = '/api/getRecommendations'; 
-
     try {
-      const response = await fetch(apiUrl, {
+      const response = await fetch('/api/getRecommendations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userInput)
+        body: JSON.stringify({ ...userInput, provider })
       });
 
+      const ct = response.headers.get('content-type') || '';
+      const payload = ct.includes('application/json') ? await response.json() : null;
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `API request failed with status ${response.status}`);
+        const msg = (payload && (payload.error || payload.detail)) || `API request failed with status ${response.status}`;
+        throw new Error(msg);
       }
 
-      const result = await response.json();
-      
-      console.log("Raw API Response:", JSON.stringify(result, null, 2));
-
-      if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts.length > 0) {
-        const jsonText = result.candidates[0].content.parts[0].text;
-        const parsedData = JSON.parse(jsonText);
-        setRecommendations(parsedData.recommendations || []);
-        setDisplaySubject(userInput.subject);
-      } else {
-        const responseText = result.promptFeedback?.blockReason?.toString() || "No valid content received from the API.";
-        throw new Error(`The model could not generate a response. Reason: ${responseText}. Please adjust your input.`);
-      }
-
+      // Unified shape: { recommendations: [{ topic, description, url }] }
+      const recs = Array.isArray(payload?.recommendations) ? payload.recommendations : [];
+      setRecommendations(recs);
+      setDisplaySubject(userInput.subject);
     } catch (err) {
-      console.error("Error fetching recommendations:", err);
-      setError(err.message || "An unknown error occurred. Please try again.");
+      console.error('Error fetching recommendations:', err);
+      setError(err?.message || 'An unknown error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [userInput]);
-  
-  // --- Event Handlers ---
+  }, [userInput, provider]);
+
+  // Handlers
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setUserInput(prev => ({ ...prev, [name]: value }));
+    setUserInput((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = (e) => {
@@ -177,11 +99,10 @@ const App = () => {
     fetchRecommendations();
   };
 
-  // --- Render Method ---
   return (
     <div className="min-h-screen bg-slate-900 text-white font-sans p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
-        
+
         <header className="text-center mb-8">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-sky-400">
             Micro-Learning Navigator
@@ -225,7 +146,7 @@ const App = () => {
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">Your Experience Level</label>
             <div className="flex flex-wrap gap-4">
-              {['Beginner', 'Intermediate', 'Advanced'].map(level => (
+              {['Beginner', 'Intermediate', 'Advanced'].map((level) => (
                 <label key={level} className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="radio"
@@ -240,11 +161,11 @@ const App = () => {
               ))}
             </div>
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">Preferred Learning Format</label>
             <div className="flex flex-wrap gap-4">
-              {['Text', 'Audio', 'Video'].map(format => (
+              {['Text', 'Audio', 'Video'].map((format) => (
                 <label key={format} className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="radio"
@@ -259,7 +180,20 @@ const App = () => {
               ))}
             </div>
           </div>
-          
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Model</label>
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              className="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition"
+            >
+              <option value="perplexity">Perplexity (best for live links)</option>
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+
           <div className="pt-4">
             <button
               type="submit"
@@ -274,7 +208,7 @@ const App = () => {
         <main>
           {isLoading && <LoadingSpinner />}
           {error && <ErrorMessage message={error} />}
-          
+
           {recommendations.length > 0 && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-center text-slate-300">
@@ -282,12 +216,12 @@ const App = () => {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
                 {recommendations.map((rec, index) => (
-                  <RecommendationCard 
-                    key={index} 
-                    index={index} 
-                    topic={rec.topic} 
-                    description={rec.description} 
-                    url={rec.url} 
+                  <RecommendationCard
+                    key={index}
+                    index={index}
+                    topic={rec.topic}
+                    description={rec.description}
+                    url={rec.url}
                   />
                 ))}
               </div>
@@ -295,35 +229,38 @@ const App = () => {
           )}
 
           {!isLoading && !error && recommendations.length === 0 && (
-             <div className="text-center p-8 bg-slate-800/30 rounded-lg border-2 border-dashed border-slate-700">
-                <h2 className="text-xl font-semibold text-slate-400">Ready for Personalized Learning?</h2>
-                <p className="text-slate-500 mt-2">Fill out the form above to discover learning opportunities tailored just for you.</p>
-             </div>
+            <div className="text-center p-8 bg-slate-800/30 rounded-lg border-2 border-dashed border-slate-700">
+              <h2 className="text-xl font-semibold text-slate-400">Ready for Personalized Learning?</h2>
+              <p className="text-slate-500 mt-2">
+                Fill out the form above to discover learning opportunities tailored just for you.
+              </p>
+            </div>
           )}
         </main>
-        
+
         <footer className="text-center mt-12 text-slate-600 text-sm">
-            <p>Powered by Gemini</p>
+          <p>Powered by {provider.charAt(0).toUpperCase() + provider.slice(1)}</p>
         </footer>
       </div>
+
       <style>
         {`
           @keyframes fade-in {
-              from { opacity: 0; transform: translateY(10px); }
-              to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
           }
           .animate-fade-in {
-              animation: fade-in 0.5s ease-out forwards;
+            animation: fade-in 0.5s ease-out forwards;
           }
           .animate-fade-in > div {
-              opacity: 0;
-              animation: fade-in 0.5s ease-out forwards;
+            opacity: 0;
+            animation: fade-in 0.5s ease-out forwards;
           }
         `}
       </style>
     </div>
   );
-};
+}
 
 export default App;
 
