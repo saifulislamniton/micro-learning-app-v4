@@ -1,83 +1,127 @@
 // api/getRecommendations.js
+//
+// Rewritten to call the unified /api/llm route so you can choose
+// Perplexity / Gemini / OpenAI at runtime while preserving the
+// original response format expected by the frontend.
+//
+// Expected request body:
+// {
+//   subject: string,
+//   userInfo: string,
+//   experienceLevel: "beginner" | "intermediate" | "advanced" | string,
+//   learningFormat: "video" | "text" | "audio" | string,
+//   provider?: "perplexity" | "gemini" | "openai",
+//   maxResults?: number
+// }
+//
+// Response (unchanged schema):
+// { recommendations: [ { topic, description, url }, ... ] }
 
-// We no longer need the verifyUrl function, as Google Search grounding is more reliable.
+function buildBaseUrl(req) {
+  // In Vercel, VERCEL_URL is like "myapp.vercel.app"
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  const host = req.headers.host || 'localhost:3000';
+  return `${proto}://${host}`;
+}
+
+function coalesceProvider(body) {
+  // Default to Perplexity because it’s best at returning real YT/TikTok links
+  const p = (body?.provider || '').toLowerCase();
+  if (p === 'perplexity' || p === 'gemini' || p === 'openai') return p;
+  return 'perplexity';
+}
+
+function buildQuery({ subject, userInfo, experienceLevel, learningFormat }) {
+  // Bias results toward short/5-min content; prefer video if asked
+  const fmt = (learningFormat || '').toLowerCase();
+  const timeHint = 'in under 5 minutes';
+  const levelHint = experienceLevel ? `${experienceLevel} level` : '';
+  const formatHint =
+    fmt.includes('video') ? 'short video' :
+    fmt.includes('audio') ? 'short audio' :
+    fmt.includes('text')  ? 'concise primer' : 'micro-learning resource';
+
+  // Example: "SQL joins short video for beginner level in under 5 minutes"
+  return [subject, formatHint, levelHint, timeHint, userInfo]
+    .filter(Boolean)
+    .join(' ').replace(/\s+/g, ' ').trim();
+}
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   try {
-    const userInput = req.body;
-    // --- Using the Gemini Key Again ---
-    const apiKey = process.env.GEMINI_API_KEY;
+    const {
+      subject,
+      userInfo,
+      experienceLevel,
+      learningFormat,
+      provider: providerRaw,
+      maxResults = 6
+    } = req.body || {};
 
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not configured on the server.");
+    if (!subject) {
+      return res.status(400).json({ error: 'Missing "subject" in request body.' });
     }
 
-    const prompt = `
-      As an expert learning consultant, generate 2 micro-learning topics for the following user and request:
-      - Subject: "${userInput.subject}"
-      - User Profile: "${userInput.userInfo}"
-      - Experience Level: "${userInput.experienceLevel}"
-      - Preferred Format: "${userInput.learningFormat}"
+    const provider = coalesceProvider(req.body);
+    const query = buildQuery({ subject, userInfo, experienceLevel, learningFormat });
+    const baseUrl = buildBaseUrl(req);
 
-      A micro-learning topic must be a small, specific concept that can be learned in approximately 11 minutes. 
-      For each topic, provide a compelling, one-sentence description and a real, publicly accessible URL from your search results.
-    `;
-
-    // --- Using the Gemini API again, with the crucial "tools" property for grounding ---
-    const payload = {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      // THIS IS THE KEY: It forces the model to use Google Search
-      tools: [{
-        "google_search": {}
-      }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            "recommendations": {
-              "type": "ARRAY",
-              "items": {
-                "type": "OBJECT",
-                "properties": {
-                  "topic": { "type": "STRING" },
-                  "description": { "type": "STRING" },
-                  "url": { "type": "STRING" }
-                },
-                "required": ["topic", "description", "url"]
-              }
-            }
-          },
-          "required": ["recommendations"]
-        }
-      }
-    };
-    
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-
-    const apiResponse = await fetch(apiUrl, {
+    // Call the unified LLM router for "links"
+    const llmResp = await fetch(`${baseUrl}/api/llm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        provider,
+        task: 'links',
+        query,
+        maxResults: Math.max(2, Math.min(maxResults, 12))
+      })
     });
 
-    const responseBodyText = await apiResponse.text();
+    const contentType = llmResp.headers.get('content-type') || '';
+    const payload = contentType.includes('application/json')
+      ? await llmResp.json()
+      : { error: `Non-JSON from /api/llm (status ${llmResp.status})` };
 
-    if (!apiResponse.ok) {
-      console.error("Gemini API Error Body:", responseBodyText);
-      throw new Error(`Gemini API request failed with status ${apiResponse.status}. Check Vercel logs.`);
+    if (!llmResp.ok) {
+      const detail = typeof payload === 'object' ? payload?.error || payload : payload;
+      throw new Error(`LLM endpoint failed: ${detail}`);
     }
 
-    // The rest of the logic can remain simple because the frontend expects the Gemini format.
-    const result = JSON.parse(responseBodyText);
-    res.status(200).json(result);
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (items.length === 0) {
+      return res.status(200).json({ recommendations: [] });
+    }
 
+    // Take top 2 and map to the legacy schema
+    const top2 = items.slice(0, 2).map((it) => {
+      const title = (it.title || '').toString().trim();
+      const reason = (it.reason || '').toString().trim();
+      const platform = (it.platform || '').toString().trim();
+
+      // Topic = cleaned title (fallback to subject)
+      const topic = title || subject;
+
+      // One-sentence description synthesized from the reason/platform
+      const descPieces = [];
+      if (reason) descPieces.push(reason.replace(/\s+/g, ' ').trim());
+      if (platform) descPieces.push(`(Platform: ${platform})`);
+      const description = descPieces.join(' ').trim() || `A concise ${learningFormat || 'micro-learning'} on "${subject}".`;
+
+      return {
+        topic,
+        description,
+        url: it.url
+      };
+    });
+
+    return res.status(200).json({ recommendations: top2 });
   } catch (error) {
-    console.error('Proxy Error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('getRecommendations error:', error);
+    return res.status(500).json({ error: error?.message || 'Internal Server Error' });
   }
 }
+
