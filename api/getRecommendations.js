@@ -1,124 +1,106 @@
 /**
  * api/getRecommendations.js
- * This serverless function handles requests for learning recommendations
- * by routing them to Gemini, OpenAI, or Perplexity based on user choice.
+ * This serverless function handles requests for learning recommendations.
+ * Updated to use 'require' and 'module.exports' for stable Vercel deployment.
  */
 
-export default async function handler(req, res) {
-  // Only allow POST requests
+const axios = require('axios');
+
+module.exports = async (req, res) => {
+  // 1. Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   const { subject, userInfo, experienceLevel, learningFormat, model } = req.body;
 
-  // 1. Determine which model to actually use. 
-  // Per your requirement: Default to Perplexity for Video to get accurate TikTok/YouTube links.
+  // 2. Validate Environment Variables
+  const keys = {
+    OpenAI: process.env.OPENAI_API_KEY,
+    Perplexity: process.env.PERPLEXITY_API_KEY,
+    Gemini: process.env.GEMINI_API_KEY
+  };
+
+  // 3. Logic: Force Perplexity for Video format to ensure real-time link accuracy
   let activeModel = model;
   if (learningFormat === 'Video') {
     activeModel = 'Perplexity';
   }
 
-  // 2. Construct the "Judgment" Prompt
-  // This tells the AI to judge the best content and enforce the < 11-minute rule.
-  const systemPrompt = `You are an elite learning curator.
-Your goal: Find the single best learning content for the user's specific profile.
+  // Safety check: ensure the required key exists for the chosen model
+  if (!keys[activeModel]) {
+    console.error(`Missing API key for model: ${activeModel}`);
+    return res.status(500).json({ 
+      error: "Configuration Error", 
+      message: `The API key for ${activeModel} is missing in your Vercel project settings.` 
+    });
+  }
+
+  const systemPrompt = `You are an elite learning curator. 
+Find the absolute best content for this specific user.
 Constraints:
-- Duration: The content must be learnable in approximately 11 minutes or less.
-- Quality: You must judge which specific link (Text, Audio, or Video) provides the most value for a ${experienceLevel} level.
-- Format: Return exactly 2 highly-vetted recommendations.
-- Output: You MUST return a valid JSON object only. No conversational text.
+- Content must be learnable in < 11 minutes.
+- Return exactly 2 high-quality recommendations.
+- Output MUST be valid JSON only. No extra text.
 
 JSON Structure:
 {
   "recommendations": [
     {
       "topic": "Concise Title",
-      "description": "One sentence explaining why this is the best 11-minute resource for this user.",
-      "url": "Direct working link"
+      "description": "One sentence explaining why this fits the user.",
+      "url": "Direct URL"
     }
   ]
 }`;
 
-  const userRequest = `User Profile: ${userInfo}
-Subject: ${subject}
-Experience: ${experienceLevel}
-Format: ${learningFormat}`;
+  const userRequest = `User Info: ${userInfo}\nSubject: ${subject}\nLevel: ${experienceLevel}\nFormat: ${learningFormat}`;
 
   try {
-    let apiUrl, headers, body;
+    let apiResponse;
 
-    // --- CASE 1: OPENAI ---
     if (activeModel === 'OpenAI') {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) throw new Error("OpenAI API Key missing in Vercel settings.");
-
-      apiUrl = 'https://api.openai.com/v1/chat/completions';
-      headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      };
-      body = JSON.stringify({
+      apiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
         model: "gpt-4-turbo-preview",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userRequest }
         ],
         response_format: { type: "json_object" }
+      }, {
+        headers: { 'Authorization': `Bearer ${keys.OpenAI}` }
       });
 
-    // --- CASE 2: PERPLEXITY (Great for Real-Time Links/Video) ---
     } else if (activeModel === 'Perplexity') {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      if (!apiKey) throw new Error("Perplexity API Key missing in Vercel settings.");
-
-      apiUrl = 'https://api.perplexity.ai/chat/completions';
-      headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      };
-      body = JSON.stringify({
+      apiResponse = await axios.post('https://api.perplexity.ai/chat/completions', {
         model: "sonar-small-online", 
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userRequest }
         ],
         response_format: { type: "json_object" }
+      }, {
+        headers: { 'Authorization': `Bearer ${keys.Perplexity}` }
       });
 
-    // --- CASE 3: GEMINI (Default) ---
     } else {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("Gemini API Key missing in Vercel settings.");
-
-      // Updated to the latest stable preview model version to avoid deprecation warnings
-      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-      headers = { 'Content-Type': 'application/json' };
-      body = JSON.stringify({
-        contents: [{
-          parts: [{ text: `${systemPrompt}\n\n${userRequest}` }]
-        }],
-        generationConfig: {
-          responseMimeType: "application/json"
+      // Default: Gemini
+      apiResponse = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${keys.Gemini}`,
+        {
+          contents: [{ parts: [{ text: `${systemPrompt}\n\n${userRequest}` }] }],
+          generationConfig: { responseMimeType: "application/json" }
         }
-      });
+      );
     }
 
-    // Execute the fetch
-    const response = await fetch(apiUrl, { method: 'POST', headers, body });
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error(`${activeModel} Error:`, data);
-      throw new Error(`${activeModel} API error: ${response.status}`);
-    }
-
-    // 3. Standardize the Output
+    // 4. Extract and Standardize Data
+    const data = apiResponse.data;
     let standardizedResult;
 
     if (activeModel === 'OpenAI' || activeModel === 'Perplexity') {
       const rawJson = data.choices?.[0]?.message?.content;
-      if (!rawJson) throw new Error(`Invalid response from ${activeModel}`);
+      if (!rawJson) throw new Error(`Empty response content from ${activeModel}`);
       
       standardizedResult = {
         candidates: [{
@@ -128,18 +110,19 @@ Format: ${learningFormat}`;
         }]
       };
     } else {
-      // Ensure Gemini data is valid before assigning
-      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        throw new Error("Invalid response structure from Gemini");
-      }
+      // Gemini response format
       standardizedResult = data;
     }
 
-    res.status(200).json(standardizedResult);
+    return res.status(200).json(standardizedResult);
 
   } catch (error) {
-    console.error("Proxy Error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("API Error Detail:", error.response?.data || error.message);
+    
+    return res.status(500).json({ 
+      error: "Proxy execution failed", 
+      message: error.message,
+      details: error.response?.data || null
+    });
   }
-}
-}
+};
