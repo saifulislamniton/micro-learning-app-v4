@@ -1,13 +1,13 @@
 /**
  * api/getRecommendations.js
- * This serverless function handles requests for learning recommendations.
- * Updated to use 'require' and 'module.exports' for stable Vercel deployment.
+ * This serverless function acts as a proxy to Gemini, OpenAI, or Perplexity.
+ * Uses the built-in 'https' module to ensure zero-dependency stability on Vercel.
  */
 
-const axios = require('axios');
+const https = require('https');
 
 module.exports = async (req, res) => {
-  // 1. Only allow POST requests
+  // 1. Guard against non-POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -21,108 +21,83 @@ module.exports = async (req, res) => {
     Gemini: process.env.GEMINI_API_KEY
   };
 
-  // 3. Logic: Force Perplexity for Video format to ensure real-time link accuracy
   let activeModel = model;
   if (learningFormat === 'Video') {
     activeModel = 'Perplexity';
   }
 
-  // Safety check: ensure the required key exists for the chosen model
   if (!keys[activeModel]) {
-    console.error(`Missing API key for model: ${activeModel}`);
     return res.status(500).json({ 
       error: "Configuration Error", 
-      message: `The API key for ${activeModel} is missing in your Vercel project settings.` 
+      message: `The API key for ${activeModel} is missing in Vercel settings.` 
     });
   }
 
-  const systemPrompt = `You are an elite learning curator. 
-Find the absolute best content for this specific user.
-Constraints:
-- Content must be learnable in < 11 minutes.
-- Return exactly 2 high-quality recommendations.
-- Output MUST be valid JSON only. No extra text.
+  const systemPrompt = `You are an elite learning curator. Find the best content.
+Constraints: < 11 mins duration, 2 recommendations, valid JSON output only.
+Structure: {"recommendations": [{"topic": "...", "description": "...", "url": "..."}]}`;
 
-JSON Structure:
-{
-  "recommendations": [
-    {
-      "topic": "Concise Title",
-      "description": "One sentence explaining why this fits the user.",
-      "url": "Direct URL"
-    }
-  ]
-}`;
-
-  const userRequest = `User Info: ${userInfo}\nSubject: ${subject}\nLevel: ${experienceLevel}\nFormat: ${learningFormat}`;
+  const userRequest = `User Profile: ${userInfo}\nSubject: ${subject}\nLevel: ${experienceLevel}\nFormat: ${learningFormat}`;
 
   try {
-    let apiResponse;
+    let url, method = 'POST', headers = { 'Content-Type': 'application/json' }, bodyData;
 
     if (activeModel === 'OpenAI') {
-      apiResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
+      url = 'https://api.openai.com/v1/chat/completions';
+      headers['Authorization'] = `Bearer ${keys.OpenAI}`;
+      bodyData = JSON.stringify({
         model: "gpt-4-turbo-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userRequest }
-        ],
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userRequest }],
         response_format: { type: "json_object" }
-      }, {
-        headers: { 'Authorization': `Bearer ${keys.OpenAI}` }
       });
-
     } else if (activeModel === 'Perplexity') {
-      apiResponse = await axios.post('https://api.perplexity.ai/chat/completions', {
+      url = 'https://api.perplexity.ai/chat/completions';
+      headers['Authorization'] = `Bearer ${keys.Perplexity}`;
+      bodyData = JSON.stringify({
         model: "sonar-small-online", 
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userRequest }
-        ],
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userRequest }],
         response_format: { type: "json_object" }
-      }, {
-        headers: { 'Authorization': `Bearer ${keys.Perplexity}` }
       });
-
     } else {
-      // Default: Gemini
-      apiResponse = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${keys.Gemini}`,
-        {
-          contents: [{ parts: [{ text: `${systemPrompt}\n\n${userRequest}` }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        }
-      );
+      url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${keys.Gemini}`;
+      bodyData = JSON.stringify({
+        contents: [{ parts: [{ text: `${systemPrompt}\n\n${userRequest}` }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      });
     }
 
-    // 4. Extract and Standardize Data
-    const data = apiResponse.data;
+    // Helper function to handle the HTTPS request
+    const makeRequest = (targetUrl, options, body) => {
+      return new Promise((resolve, reject) => {
+        const request = https.request(targetUrl, options, (response) => {
+          let data = '';
+          response.on('data', (chunk) => data += chunk);
+          response.on('end', () => resolve({ status: response.statusCode, data: JSON.parse(data) }));
+        });
+        request.on('error', (err) => reject(err));
+        request.write(body);
+        request.end();
+      });
+    };
+
+    const apiResult = await makeRequest(url, { method, headers }, bodyData);
+
+    if (apiResult.status !== 200) {
+      throw new Error(`API returned status ${apiResult.status}: ${JSON.stringify(apiResult.data)}`);
+    }
+
     let standardizedResult;
-
     if (activeModel === 'OpenAI' || activeModel === 'Perplexity') {
-      const rawJson = data.choices?.[0]?.message?.content;
-      if (!rawJson) throw new Error(`Empty response content from ${activeModel}`);
-      
-      standardizedResult = {
-        candidates: [{
-          content: {
-            parts: [{ text: rawJson }]
-          }
-        }]
-      };
+      const rawJson = apiResult.data.choices?.[0]?.message?.content;
+      standardizedResult = { candidates: [{ content: { parts: [{ text: rawJson }] } }] };
     } else {
-      // Gemini response format
-      standardizedResult = data;
+      standardizedResult = apiResult.data;
     }
 
-    return res.status(200).json(standardizedResult);
+    res.status(200).json(standardizedResult);
 
   } catch (error) {
-    console.error("API Error Detail:", error.response?.data || error.message);
-    
-    return res.status(500).json({ 
-      error: "Proxy execution failed", 
-      message: error.message,
-      details: error.response?.data || null
-    });
+    console.error("Proxy Error:", error.message);
+    res.status(500).json({ error: "Internal Server Error", details: error.message });
   }
 };
