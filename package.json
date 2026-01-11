@@ -1,5 +1,5 @@
 {
-  "name": "micro-learning-v2",
+  "name": "micro-learning-v4",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -37,4 +37,8 @@
       "last 1 safari version"
     ]
   }
+"engines": {
+  "node": "18.x"
+}
+3.  **Experimental Fetch:** If you are on a specific older environment, `fetch` might be behind a flag. Upgrading the version is the most robust solution.
 }
