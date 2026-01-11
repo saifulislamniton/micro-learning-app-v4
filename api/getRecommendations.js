@@ -1,6 +1,6 @@
 /**
  * api/getRecommendations.js
- * * This serverless function handles requests for learning recommendations
+ * This serverless function handles requests for learning recommendations
  * by routing them to Gemini, OpenAI, or Perplexity based on user choice.
  */
 
@@ -78,7 +78,7 @@ Format: ${learningFormat}`;
         'Authorization': `Bearer ${apiKey}`
       };
       body = JSON.stringify({
-        model: "sonar-small-online", // This model can browse the web for fresh links
+        model: "sonar-small-online", 
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userRequest }
@@ -91,7 +91,8 @@ Format: ${learningFormat}`;
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("Gemini API Key missing in Vercel settings.");
 
-      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+      // Updated to the latest stable preview model version to avoid deprecation warnings
+      apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
       headers = { 'Content-Type': 'application/json' };
       body = JSON.stringify({
         contents: [{
@@ -113,11 +114,12 @@ Format: ${learningFormat}`;
     }
 
     // 3. Standardize the Output
-    // The frontend App.jsx expects a Gemini-style structure: result.candidates[0].content.parts[0].text
     let standardizedResult;
 
     if (activeModel === 'OpenAI' || activeModel === 'Perplexity') {
-      const rawJson = data.choices[0].message.content;
+      const rawJson = data.choices?.[0]?.message?.content;
+      if (!rawJson) throw new Error(`Invalid response from ${activeModel}`);
+      
       standardizedResult = {
         candidates: [{
           content: {
@@ -126,7 +128,10 @@ Format: ${learningFormat}`;
         }]
       };
     } else {
-      // Gemini already returns the expected structure
+      // Ensure Gemini data is valid before assigning
+      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error("Invalid response structure from Gemini");
+      }
       standardizedResult = data;
     }
 
@@ -136,4 +141,5 @@ Format: ${learningFormat}`;
     console.error("Proxy Error:", error);
     res.status(500).json({ error: error.message });
   }
+}
 }
